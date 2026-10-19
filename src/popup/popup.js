@@ -1,4 +1,4 @@
-import { makeHost, matching, fillRequests, HostError } from "../host.js";
+import { makeHost, matching, fillRequests, fillPlan, HostError } from "../host.js";
 
 // The popup: the logins sesh has for the tab's site, filled on Enter or a
 // click. It runs only when you open it (its button, or Alt+Shift+S), which
@@ -63,10 +63,26 @@ async function load() {
     draw();
 }
 
-// fill gets the login from sesh (which checks the site again) and puts it
-// in the page's form, then its code in a one-time-code field, if the page
-// has one; otherwise the code is shown, to copy.
+// fill gets the login from sesh (which checks the site again) and fills
+// what the page asks for: the username and password on a page with a
+// password field; the code alone on a page asking only for one; the
+// username alone on a sign-in that asks for it first. A code the page
+// doesn't take is shown, to copy. One fill at a time.
+let filling = false;
+
 async function fill(entry) {
+    if (filling) {
+        return;
+    }
+    filling = true;
+    try {
+        await fillWith(entry);
+    } finally {
+        filling = false;
+    }
+}
+
+async function fillWith(entry) {
     let login;
     try {
         login = await host.fill(entry.id, tab.url);
@@ -79,10 +95,30 @@ async function fill(entry) {
         return;
     }
     try {
+        const frames = await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, func: pageStep });
+        const step = {
+            password: frames.some((f) => f.result && f.result.password),
+            code: frames.some((f) => f.result && f.result.code),
+        };
+        const plan = fillPlan(step, Boolean(login.totp));
+        if (plan === "no_code") {
+            say("This page asks for a code, and sesh has none for this login.", true);
+            return;
+        }
+        if (plan === "code") {
+            const [r] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: fillOneTimeCode, args: [login.totp] });
+            if (r && r.result === true) {
+                window.close();
+                return;
+            }
+            say("The code field couldn't be filled: copy the code.", true);
+            showCode(login.totp);
+            return;
+        }
         await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["inject/inject.js"] });
         await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, files: ["inject/inject.js"] }).catch(() => {});
         let filled = [];
-        for (const request of fillRequests(tab.url, login)) {
+        for (const request of fillRequests(tab.url, login, plan)) {
             let results;
             try {
                 results = await chrome.scripting.executeScript({
@@ -98,19 +134,14 @@ async function fill(entry) {
                 break;
             }
         }
-        let codeFilled = false;
-        if (login.totp) {
-            const [r] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: fillOneTimeCode, args: [login.totp] });
-            codeFilled = r && r.result === true;
-        }
-        if (filled.length === 0 && !codeFilled) {
+        if (filled.length === 0) {
             say("sesh found no login form on this page to fill.", true);
             showCode(login.totp);
             return;
         }
-        if (login.totp && !codeFilled) {
+        if (login.totp) {
             showCode(login.totp);
-            say("Filled. The page has no code field yet: copy the code when it asks.");
+            say("Filled. When the site asks for the code, open sesh again, or copy it.");
             return;
         }
         window.close();
@@ -133,12 +164,40 @@ function showCode(code) {
     };
 }
 
-// fillOneTimeCode puts code in the page's one-time-code field, when it has
-// one it can see: run in the page, so it takes nothing from outside.
+// pageStep says what the page (one frame of it) asks for: a password
+// field, a one-time-code field, each one you can see. Run in the page, so
+// it takes nothing from outside: visible is browserpass's own rule.
+function pageStep() {
+    function visible(el) {
+        if (el.disabled || el.offsetWidth < 30 || el.offsetHeight < 10) {
+            return false;
+        }
+        const style = window.getComputedStyle(el);
+        if (style.visibility === "hidden" || parseFloat(style.opacity) < 0.1) {
+            return false;
+        }
+        const r = el.getBoundingClientRect();
+        return !(r.x + r.width < 0 || r.y + r.height < 0 || r.x > window.innerWidth || r.y > window.innerHeight);
+    }
+    const any = (selector) => Array.from(document.querySelectorAll(selector)).some(visible);
+    return { password: any("input[type=password i]"), code: any('input[autocomplete="one-time-code" i]') };
+}
+
+// fillOneTimeCode puts code in the page's one-time-code field you can
+// see, by the same rule as pageStep. Run in the page.
 function fillOneTimeCode(code) {
-    const field = Array.from(document.querySelectorAll('input[autocomplete="one-time-code" i]')).find(
-        (el) => !el.disabled && !el.readOnly && el.offsetWidth >= 30 && el.offsetHeight >= 10,
-    );
+    function visible(el) {
+        if (el.disabled || el.readOnly || el.offsetWidth < 30 || el.offsetHeight < 10) {
+            return false;
+        }
+        const style = window.getComputedStyle(el);
+        if (style.visibility === "hidden" || parseFloat(style.opacity) < 0.1) {
+            return false;
+        }
+        const r = el.getBoundingClientRect();
+        return !(r.x + r.width < 0 || r.y + r.height < 0 || r.x > window.innerWidth || r.y > window.innerHeight);
+    }
+    const field = Array.from(document.querySelectorAll('input[autocomplete="one-time-code" i]')).find(visible);
     if (!field) {
         return false;
     }
@@ -160,7 +219,7 @@ document.addEventListener("keydown", (ev) => {
         picked = (picked + (ev.key === "ArrowDown" ? 1 : -1) + shown.length) % Math.max(shown.length, 1);
         draw();
         ev.preventDefault();
-    } else if (ev.key === "Enter" && shown[picked]) {
+    } else if (ev.key === "Enter" && shown[picked] && !(ev.target instanceof HTMLButtonElement)) {
         fill(shown[picked]);
         ev.preventDefault();
     }

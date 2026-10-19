@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { makeHost, matching, fillRequests, HostError, HOST } from "../src/host.js";
+import { makeHost, matching, fillRequests, fillPlan, unreachable, HostError, HOST } from "../src/host.js";
 
 // A host whose replies are given, recording what it was sent.
 function fakeHost(reply) {
@@ -50,6 +50,20 @@ test("sesh not reachable says how to set it up", async () => {
     await assert.rejects(host.status(), (e) => e.code === "no_host" && /sesh browser install/.test(e.message));
 });
 
+test("each way the browser can't reach sesh says what to do about it", () => {
+    for (const [said, code, advice] of [
+        ["Specified native messaging host not found.", "no_host", /install sesh, then run sesh browser install/],
+        ["No such native application io.github.bashhack.sesh", "no_host", /install sesh/],
+        ["Access to the specified native messaging host is forbidden.", "forbidden", /sesh browser install again/],
+        ["Native host has exited.", "host_exited", /sesh doctor/],
+        ["An unexpected error occurred", "unreachable", /sesh doctor/],
+    ]) {
+        const e = unreachable(new Error(said));
+        assert.equal(e.code, code, said);
+        assert.match(e.message, advice, said);
+    }
+});
+
 test("no reply is a failure, not an empty answer", async () => {
     const { host } = fakeHost(undefined);
     await assert.rejects(host.match("https://x.example/"), (e) => e.code === "failed");
@@ -67,16 +81,30 @@ test("the search matches every word, in a name or username, case aside", () => {
     assert.deepEqual(matching(entries, "nobody"), []);
 });
 
-test("the fill tries the top frame, then same-site frames, then a username-only step; never another site's frames", () => {
-    const reqs = fillRequests("https://github.com/login?x=1", { username: "alice", password: "pw" });
+test("what's filled follows what the page asks for; a code field never gets the username", () => {
+    assert.equal(fillPlan({ password: true, code: false }, true), "login");
+    assert.equal(fillPlan({ password: true, code: true }, true), "login"); // the code isn't put in beside a password
+    assert.equal(fillPlan({ password: false, code: true }, true), "code");
+    assert.equal(fillPlan({ password: false, code: true }, false), "no_code");
+    assert.equal(fillPlan({ password: false, code: false }, true), "username");
+    assert.equal(fillPlan({ password: false, code: false }, false), "username");
+});
+
+test("a login fill tries the top frame, then same-site frames; a username step only the top frame; never another site's frames", () => {
+    const login = { username: "alice", password: "pw" };
     assert.deepEqual(
-        reqs.map((r) => [r.allFrames, r.allowNoSecret]),
+        fillRequests("https://github.com/login?x=1", login, "login").map((r) => [r.allFrames, r.allowNoSecret]),
         [
             [false, false],
             [true, false],
-            [false, true],
         ],
     );
+    assert.deepEqual(
+        fillRequests("https://github.com/login", login, "username").map((r) => [r.allFrames, r.allowNoSecret]),
+        [[false, true]],
+    );
+    assert.deepEqual(fillRequests("https://github.com/", login, "code"), []);
+    const reqs = [...fillRequests("https://github.com/login?x=1", login, "login"), ...fillRequests("https://github.com/login", login, "username")];
     for (const r of reqs) {
         assert.equal(r.origin, "https://github.com");
         assert.equal(r.allowForeign, false);

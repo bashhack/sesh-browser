@@ -23,8 +23,7 @@ export function makeHost(send) {
         try {
             reply = await send(HOST, request);
         } catch (e) {
-            // The browser couldn't start sesh: not installed, or not set up.
-            throw new HostError("no_host", "The browser can't reach sesh: install sesh, then run sesh browser install. (" + e.message + ")");
+            throw unreachable(e);
         }
         if (!reply || reply.status !== "ok") {
             throw new HostError((reply && reply.code) || "failed", (reply && reply.message) || "sesh gave no answer");
@@ -55,6 +54,41 @@ export function makeHost(send) {
     };
 }
 
+// unreachable is why the browser couldn't get an answer from sesh, from
+// what it said (Chrome's words, then Firefox's), with what to do.
+export function unreachable(e) {
+    const said = (e && e.message) || String(e);
+    if (/host not found|no such native application/i.test(said)) {
+        return new HostError("no_host", "The browser can't find sesh: install sesh, then run sesh browser install. (" + said + ")");
+    }
+    if (/forbidden/i.test(said)) {
+        return new HostError("forbidden", "sesh isn't set up to let this extension in: run sesh browser install again. (" + said + ")");
+    }
+    if (/exited/i.test(said)) {
+        return new HostError("host_exited", "sesh stopped before it answered: sesh doctor says what's wrong. (" + said + ")");
+    }
+    return new HostError("unreachable", "The browser couldn't get an answer from sesh (" + said + "): sesh doctor says what's wrong.");
+}
+
+// fillPlan is what to fill, from what the page shows (step: a visible
+// password field, a visible one-time-code field) and whether the login
+// has a code:
+//   - "login": the username and password, on a page asking for a password;
+//     a code isn't put in on such a page, only shown;
+//   - "code": the code alone, on a page asking only for one;
+//   - "no_code": nothing, on a page asking for a code the login hasn't;
+//   - "username": the username alone, for a sign-in asking for it first.
+// A code field is never given the username.
+export function fillPlan(step, hasCode) {
+    if (step.password) {
+        return "login";
+    }
+    if (step.code) {
+        return hasCode ? "code" : "no_code";
+    }
+    return "username";
+}
+
 // matching is the entries whose name or username has every word of query
 // in it, case aside, in the order sesh gave them.
 export function matching(entries, query) {
@@ -66,11 +100,12 @@ export function matching(entries, query) {
 }
 
 // fillRequests are the requests browserpass's fill script is given, one
-// after another until one fills something: the login form in the top
-// frame; then in its same-site frames too; then, for a sign-in that asks
-// for the username first, a form without a password field. Frames from
-// another site aren't filled: the extension can't reach them.
-export function fillRequests(url, login) {
+// after another until one fills something, for plan's step: for
+// "login", the login form in the top frame, then in its same-site frames
+// too; for "username", a form without a password field, in the top
+// frame. Frames from another site aren't filled: the extension can't
+// reach them.
+export function fillRequests(url, login, plan) {
     const base = {
         origin: new URL(url).origin,
         login: { fields: { login: login.username, secret: login.password } },
@@ -78,9 +113,14 @@ export function fillRequests(url, login) {
         allowForeign: false,
         foreignFills: {},
     };
-    return [
-        { ...base, allowNoSecret: false, allFrames: false },
-        { ...base, allowNoSecret: false, allFrames: true },
-        { ...base, allowNoSecret: true, allFrames: false },
-    ];
+    switch (plan) {
+        case "login":
+            return [
+                { ...base, allowNoSecret: false, allFrames: false },
+                { ...base, allowNoSecret: false, allFrames: true },
+            ];
+        case "username":
+            return [{ ...base, allowNoSecret: true, allFrames: false }];
+    }
+    return [];
 }
