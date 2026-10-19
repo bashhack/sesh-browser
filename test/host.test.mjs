@@ -112,3 +112,16 @@ test("a login fill tries the top frame, then same-site frames; a username step o
         assert.deepEqual(r.fields, ["login", "secret"]);
     }
 });
+
+test("the page's fill is browserpass's script, unchanged, and its fill in one function", async () => {
+    const { fillInPageSource } = await import("../build.mjs");
+    const { readFileSync } = await import("node:fs");
+    const source = fillInPageSource();
+    assert.ok(source.includes(readFileSync("src/inject/inject.js", "utf8")), "inject.js isn't in it whole");
+    assert.match(source, /export function fillInPage\(request\)/);
+    assert.match(source, /window\.browserpass\.fillLogin\(request\)\.filledFields/);
+    // It's one function the browser can send into the page as its source.
+    const mod = await import("data:text/javascript," + encodeURIComponent(source));
+    assert.equal(typeof mod.fillInPage, "function");
+    assert.doesNotThrow(() => new Function("return (" + mod.fillInPage.toString() + ")"));
+});

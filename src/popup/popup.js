@@ -1,4 +1,6 @@
 import { makeHost, matching, fillRequests, fillPlan, HostError } from "../host.js";
+// Made by the build from inject/inject.js (build.mjs).
+import { fillInPage } from "../inject/fill-in-page.js";
 
 // The popup: the logins sesh has for the tab's site, filled on Enter or a
 // click. It runs only when you open it (its button, or Alt+Shift+S), which
@@ -115,27 +117,33 @@ async function fillWith(entry) {
             showCode(login.totp);
             return;
         }
-        await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["inject/inject.js"] });
-        await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, files: ["inject/inject.js"] }).catch(() => {});
         let filled = [];
+        let why = ""; // what went wrong, when nothing was filled
         for (const request of fillRequests(tab.url, login, plan)) {
             let results;
             try {
                 results = await chrome.scripting.executeScript({
                     target: { tabId: tab.id, allFrames: request.allFrames },
-                    func: (r) => (window.browserpass ? window.browserpass.fillLogin(r).filledFields : []),
+                    func: fillInPage,
                     args: [request],
                 });
-            } catch {
+            } catch (e) {
+                why = why || "the browser wouldn't run the fill there (" + e.message + ")";
                 continue; // frames the extension can't reach: the next way
             }
-            filled = results.flatMap((f) => f.result || []);
+            filled = results.flatMap((f) => (f.result && f.result.fields) || []);
             if (filled.length > 0) {
                 break;
             }
+            const frame = results.find((f) => f.result && f.result.error);
+            if (frame && !why) {
+                why = "the fill script failed: " + frame.result.error;
+            } else if (!results.length && !why) {
+                why = "the browser ran the fill in no frame";
+            }
         }
         if (filled.length === 0) {
-            say("sesh found no login form on this page to fill.", true);
+            say("sesh found no login form on this page to fill" + (why ? ": " + why : ".") + " (the page asked for: " + plan + ")", true);
             showCode(login.totp);
             return;
         }
