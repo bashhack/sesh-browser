@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>sesh</title>
+<link rel="stylesheet" href="popup.css">
+<script type="module" src="popup.js"></script>
+</head>
+<body>
+<header>
+  <input id="search" type="search" placeholder="Search this site's logins" autocomplete="off" spellcheck="false" aria-label="Search this site's logins">
+</header>
+<main>
+  <p id="said" role="status"></p>
+  <button id="unlock" type="button" hidden>Unlock with Touch ID</button>
+  <ul id="logins" role="listbox" aria-label="Logins for this site"></ul>
+  <section id="code" hidden>
+    <p>The code for this login: <strong id="code-value"></strong></p>
+    <button id="copy-code" type="button">Copy the code</button>
+  </section>
+</main>
+<footer>↑↓ choose · Enter fills · Esc closes</footer>
+</body>
+</html>

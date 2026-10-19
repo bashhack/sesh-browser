@@ -1,0 +1,28 @@
+{
+    "manifest_version": 3,
+    "name": "sesh",
+    "description": "Fill a site's login from your sesh vault.",
+    "version": "0.1.0",
+    "homepage_url": "https://github.com/bashhack/sesh-browser",
+    "browser_specific_settings": {
+        "gecko": {
+            "id": "sesh@bashhack.github.io",
+            "strict_min_version": "128.0",
+            "data_collection_permissions": { "required": ["none"] }
+        }
+    },
+    "action": {
+        "default_popup": "popup/popup.html",
+        "default_title": "sesh"
+    },
+    "permissions": ["activeTab", "nativeMessaging", "scripting"],
+    "commands": {
+        "_execute_action": {
+            "suggested_key": { "default": "Alt+Shift+S" },
+            "description": "Open sesh for this tab"
+        }
+    },
+    "content_security_policy": {
+        "extension_pages": "default-src 'none'; script-src 'self'; style-src 'self'"
+    }
+}
