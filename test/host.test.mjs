@@ -112,3 +112,33 @@ test("a login fill tries the top frame, then same-site frames; a username step o
         assert.deepEqual(r.fields, ["login", "secret"]);
     }
 });
+
+test("the page's fill is browserpass's script, unchanged, and its fill in one function", async () => {
+    const { fillInPageSource } = await import("../build.mjs");
+    const { readFileSync } = await import("node:fs");
+    const source = fillInPageSource();
+    assert.ok(source.includes(readFileSync("src/inject/inject.js", "utf8")), "inject.js isn't in it whole");
+    assert.match(source, /export function fillInPage\(request\)/);
+    assert.match(source, /window\.browserpass\.fillLogin\(request\)\.filledFields/);
+    // It's one function the browser can send into the page as its source.
+    const mod = await import("data:text/javascript," + encodeURIComponent(source));
+    assert.equal(typeof mod.fillInPage, "function");
+    assert.doesNotThrow(() => new Function("return (" + mod.fillInPage.toString() + ")"));
+    // Sent as its source into a page, it needs nothing from where it was
+    // written: run in an empty context with a bare page, it fills nothing
+    // and fails on nothing (a name it can't take along would be "… is not
+    // defined").
+    const vm = await import("node:vm");
+    const page = {
+        location: { origin: "https://github.com" },
+        getComputedStyle: () => ({ visibility: "visible", opacity: "1" }),
+        innerWidth: 1000,
+        innerHeight: 800,
+    };
+    const document = { querySelectorAll: () => [], documentElement: { getAttribute: () => null } };
+    page.document = document;
+    const context = vm.createContext({ window: page, document, Event: class {}, String });
+    const request = { origin: "https://github.com", login: { fields: { login: "a", secret: "b" } }, fields: ["login", "secret"], allowForeign: false, foreignFills: {}, allowNoSecret: false };
+    const out = vm.runInContext(`(${mod.fillInPage.toString()})(${JSON.stringify(request)})`, context);
+    assert.deepEqual(JSON.parse(JSON.stringify(out)), { fields: [] });
+});
