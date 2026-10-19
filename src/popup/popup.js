@@ -172,8 +172,16 @@ function pageStep() {
         if (el.disabled || el.offsetWidth < 30 || el.offsetHeight < 10) {
             return false;
         }
-        const style = window.getComputedStyle(el);
-        if (style.visibility === "hidden" || parseFloat(style.opacity) < 0.1) {
+        if (window.getComputedStyle(el).visibility === "hidden") {
+            return false; // visibility is inherited: this covers its parents
+        }
+        // Opacity isn't: a field in a see-through parent is see-through.
+        let opacity = 1;
+        for (let n = el; n && n.nodeType === Node.ELEMENT_NODE; n = n.parentNode) {
+            const o = parseFloat(window.getComputedStyle(n).opacity);
+            opacity *= Number.isNaN(o) ? 1 : o;
+        }
+        if (opacity < 0.1) {
             return false;
         }
         const r = el.getBoundingClientRect();
@@ -190,8 +198,16 @@ function fillOneTimeCode(code) {
         if (el.disabled || el.readOnly || el.offsetWidth < 30 || el.offsetHeight < 10) {
             return false;
         }
-        const style = window.getComputedStyle(el);
-        if (style.visibility === "hidden" || parseFloat(style.opacity) < 0.1) {
+        if (window.getComputedStyle(el).visibility === "hidden") {
+            return false; // visibility is inherited: this covers its parents
+        }
+        // Opacity isn't: a field in a see-through parent is see-through.
+        let opacity = 1;
+        for (let n = el; n && n.nodeType === Node.ELEMENT_NODE; n = n.parentNode) {
+            const o = parseFloat(window.getComputedStyle(n).opacity);
+            opacity *= Number.isNaN(o) ? 1 : o;
+        }
+        if (opacity < 0.1) {
             return false;
         }
         const r = el.getBoundingClientRect();
