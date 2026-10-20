@@ -2,7 +2,7 @@
 
 The browser extension for [sesh](https://github.com/bashhack/sesh): fill a site's login from your sesh vault, in Chrome and Firefox.
 
-Not released yet: it's being built, and is loaded by hand for now. sesh's side, the program the extension talks to (`sesh browser-host`), is in sesh already; `sesh browser install`, which tells the browser where it is, is next.
+Not released yet: it's loaded by hand for now. It needs sesh, and `sesh browser install` run once, which tells Chrome and Firefox where sesh is.
 
 ## Trying it
 
@@ -10,6 +10,8 @@ Not released yet: it's being built, and is loaded by hand for now. sesh's side, 
 npm test          # the extension's own tests
 npm run build     # dist/chrome and dist/firefox
 ```
+
+Run the browser once, then `sesh browser install`. `sesh doctor` says how it's set up.
 
 - **Chrome:** chrome://extensions, turn on Developer mode, Load unpacked, and choose `dist/chrome`. Its ID is always `dgamnkgjechpcflbfflndpegmcbpdajj`: the manifest's `key` fixes it.
 - **Firefox:** about:debugging, This Firefox, Load Temporary Add-on, and choose `dist/firefox/manifest.json`. Its ID is `sesh@bashhack.github.io`. A temporary add-on lasts until Firefox restarts; a signed one comes later.
